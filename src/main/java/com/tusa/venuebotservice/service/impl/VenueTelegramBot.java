@@ -8,12 +8,18 @@ import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
+import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -100,6 +106,7 @@ public class VenueTelegramBot extends TelegramLongPollingBot {
         }
     }
 
+
     private void handleCallback(CallbackQuery callbackQuery) {
         String callbackData = callbackQuery.getData(); // например "VENUE_5"
         String chatId = callbackQuery.getMessage().getChatId().toString();
@@ -107,15 +114,38 @@ public class VenueTelegramBot extends TelegramLongPollingBot {
         if (callbackData.startsWith("VENUE_")) {
             Long venueId = Long.parseLong(callbackData.substring(6)); // извлекаем id
 
-            Venue venue = venueService.findVenueById(venueId); // ты должен реализовать этот метод
+            Venue venue = venueService.findVenueById(venueId);
             if (venue != null) {
-                sendMessage(chatId, "Layout заведения \"" + venue.getName() + "\":\n" + venue.getAddress());
+                String layoutUrl = venue.getLayoutUrl(); // Убедись, что такой метод есть
+
+                try (InputStream inputStream = venueService.download(layoutUrl)) {
+                    // Сохраняем InputStream во временный файл
+                    File tempFile = File.createTempFile("layout_", ".jpg"); // можно .png если нужно
+                    try (OutputStream outStream = new FileOutputStream(tempFile)) {
+                        inputStream.transferTo(outStream);
+                    }
+
+                    SendPhoto photo = new SendPhoto();
+                    photo.setChatId(chatId);
+                    photo.setPhoto(new InputFile(tempFile));
+                    photo.setCaption("Layout заведения \"" + venue.getName() + "\"");
+
+                    execute(photo);
+
+                    // Удаляем временный файл после отправки (опционально)
+                    tempFile.deleteOnExit();
+
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    sendMessage(chatId, "Не удалось загрузить layout заведения.");
+                }
+
             } else {
                 sendMessage(chatId, "Заведение не найдено.");
             }
         }
 
-        // optionally, acknowledge callback
+        // подтверждение callback
         AnswerCallbackQuery answer = new AnswerCallbackQuery();
         answer.setCallbackQueryId(callbackQuery.getId());
         try {
@@ -124,6 +154,7 @@ public class VenueTelegramBot extends TelegramLongPollingBot {
             e.printStackTrace();
         }
     }
+
 
 
     @Override
