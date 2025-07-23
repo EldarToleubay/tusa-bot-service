@@ -41,14 +41,15 @@ public class VenueTelegramBot extends TelegramLongPollingBot {
 
             switch (message) {
                 case "/start" -> sendMessage(chatId, "Привет! Я помогу тебе найти заведение.");
-                case "/venues" -> showVenues(chatId);
+                case "/venues" -> showVenuesWithButtons(chatId); // исправлено на showVenuesWithButtons
                 default -> sendMessage(chatId, "Неизвестная команда.");
             }
-        } else if (update.hasCallbackQuery()) {
-            handleCallback(update.getCallbackQuery());
 
+        } else if (update.hasCallbackQuery()) {
+            handleCallback(update.getCallbackQuery()); // 🔥 ЭТО ОБЯЗАТЕЛЬНО!
         }
     }
+
 
     private void showVenuesWithButtons(String chatId) {
         List<Venue> venues = venueService.findAllVenues();
