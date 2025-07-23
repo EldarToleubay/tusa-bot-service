@@ -25,10 +25,9 @@ public class PlaceStatusController {
     }
 
     @PostMapping("/{venueId}/{placeId}/timeSlot")
-    public List<PlaceStatusDto> setPlaceStatus(@PathVariable Long venueId, @PathVariable Long placeId,String timeSlot) {
-        return placeStatusService.setPlaceStatus(venueId,placeId,timeSlot);
+    public PlaceStatusDto setPlaceStatus(@PathVariable Long venueId, @PathVariable Long placeId, String timeSlot) {
+        return placeStatusService.setPlaceStatus(venueId, placeId, timeSlot);
     }
-
 
 
 }

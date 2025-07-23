@@ -40,9 +40,9 @@ public class PlaceStatusServiceImpl implements PlaceStatusService {
     }
 
     @Override
-    public List<PlaceStatusDto> setPlaceStatus(Long venueId, Long placeId,String timSlot) {
+    public PlaceStatusDto setPlaceStatus(Long venueId, Long placeId, String timSlot) {
         Venue venue = venueService.findVenueById(venueId);
-        PlaceDto placeDto = placeService.getPlaceById(venueId,placeId);
+        PlaceDto placeDto = placeService.getPlaceById(venueId, placeId);
 
         Optional<PlaceStatus> placeStatus = placeStatusRepository.findByVenueAndPlace(venue, placeDtoMapper.toEntity(placeDto));
         PlaceStatus status;
@@ -61,7 +61,7 @@ public class PlaceStatusServiceImpl implements PlaceStatusService {
 
         }
         placeStatusRepository.save(status);
-        return List.of(placeStatusDtoMapper.toDto(status));
+        return placeStatusDtoMapper.toDto(status);
 
     }
 }

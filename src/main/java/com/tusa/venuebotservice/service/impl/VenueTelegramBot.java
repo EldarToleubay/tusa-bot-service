@@ -1,30 +1,29 @@
 package com.tusa.venuebotservice.service.impl;
 
-
+import com.tusa.venuebotservice.dto.PlaceDto;
+import com.tusa.venuebotservice.dto.PlaceStatusDto;
 import com.tusa.venuebotservice.entity.Venue;
+import com.tusa.venuebotservice.service.PlaceService;
+import com.tusa.venuebotservice.service.PlaceStatusService;
 import com.tusa.venuebotservice.service.VenueService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
-import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
-import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Component
+@RequiredArgsConstructor
 public class VenueTelegramBot extends TelegramLongPollingBot {
 
     @Value("${telegrambots.botUsername}")
@@ -33,11 +32,9 @@ public class VenueTelegramBot extends TelegramLongPollingBot {
     @Value("${telegrambots.botToken}")
     private String botToken;
 
-    private final VenueService venueService; // твой сервис
-
-    public VenueTelegramBot(VenueService venueService) {
-        this.venueService = venueService;
-    }
+    private final VenueService venueService;
+    private final PlaceService placeService;
+    private final PlaceStatusService placeStatusService;
 
     @Override
     public void onUpdateReceived(Update update) {
@@ -47,15 +44,14 @@ public class VenueTelegramBot extends TelegramLongPollingBot {
 
             switch (message) {
                 case "/start" -> sendMessage(chatId, "Привет! Я помогу тебе найти заведение.");
-                case "/venues" -> showVenuesWithButtons(chatId); // исправлено на showVenuesWithButtons
+                case "/venues" -> showVenuesWithButtons(chatId);
                 default -> sendMessage(chatId, "Неизвестная команда.");
             }
 
         } else if (update.hasCallbackQuery()) {
-            handleCallback(update.getCallbackQuery()); // 🔥 ЭТО ОБЯЗАТЕЛЬНО!
+            handleCallback(update.getCallbackQuery());
         }
     }
-
 
     private void showVenuesWithButtons(String chatId) {
         List<Venue> venues = venueService.findAllVenues();
@@ -64,7 +60,7 @@ public class VenueTelegramBot extends TelegramLongPollingBot {
         for (Venue venue : venues) {
             InlineKeyboardButton button = new InlineKeyboardButton();
             button.setText(venue.getName());
-            button.setCallbackData("VENUE_" + venue.getId()); // например: VENUE_5
+            button.setCallbackData("VENUE_" + venue.getId());
 
             List<InlineKeyboardButton> row = new ArrayList<>();
             row.add(button);
@@ -86,13 +82,71 @@ public class VenueTelegramBot extends TelegramLongPollingBot {
         }
     }
 
+    private void handleCallback(CallbackQuery callbackQuery) {
+        String callbackData = callbackQuery.getData();
+        String chatId = callbackQuery.getMessage().getChatId().toString();
 
-    private void showVenues(String chatId) {
-        List<Venue> venues = venueService.findAllVenues();
-        String text = venues.stream()
-                .map(v -> v.getId() + ": " + v.getName())
-                .collect(Collectors.joining("\n"));
-        sendMessage(chatId, "Список заведений:\n" + text);
+        try {
+            if (callbackData.startsWith("VENUE_")) {
+                Long venueId = Long.parseLong(callbackData.substring(6));
+                Venue venue = venueService.findVenueById(venueId);
+
+                if (venue != null) {
+                    sendMessage(chatId, "Заведение: " + venue.getName() + "\nАдрес: " + venue.getAddress());
+
+                    List<PlaceDto> places = placeService.getAllPlace(venueId);
+                    List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+                    for (PlaceDto place : places) {
+                        if (Boolean.TRUE.equals(place.getActive())) {
+                            InlineKeyboardButton btn = new InlineKeyboardButton();
+                            btn.setText(place.getLabel());
+                            btn.setCallbackData("PLACE_" + place.getId() + "_VENUE_" + venueId);
+                            rows.add(List.of(btn));
+                        }
+                    }
+
+                    InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+                    markup.setKeyboard(rows);
+
+                    SendMessage placeMsg = new SendMessage();
+                    placeMsg.setChatId(chatId);
+                    placeMsg.setText("Выберите стол для бронирования:");
+                    placeMsg.setReplyMarkup(markup);
+
+                    execute(placeMsg);
+                } else {
+                    sendMessage(chatId, "Заведение не найдено.");
+                }
+
+            } else if (callbackData.startsWith("PLACE_")) {
+                String[] parts = callbackData.split("_");
+                Long placeId = Long.parseLong(parts[1]);
+                Long venueId = Long.parseLong(parts[3]);
+
+                String timeSlot = LocalTime.now().withSecond(0).withNano(0).toString();
+
+                PlaceStatusDto statusDto = placeStatusService.setPlaceStatus(venueId, placeId, timeSlot);
+
+                StringBuilder sb = new StringBuilder();
+                sb.append("✅ Бронь выполнена!\n");
+                sb.append("Стол: ").append(placeId).append("\n");
+                sb.append("Заведение ID: ").append(venueId).append("\n");
+                sb.append("Дата: ").append(statusDto.getDate()).append("\n");
+                sb.append("Время: ").append(statusDto.getTimeSlot()).append("\n");
+                sb.append("Статус: ").append(statusDto.getStatus());
+
+                sendMessage(chatId, sb.toString());
+            }
+
+            AnswerCallbackQuery answer = new AnswerCallbackQuery();
+            answer.setCallbackQueryId(callbackQuery.getId());
+            execute(answer);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            sendMessage(chatId, "Произошла ошибка при обработке запроса.");
+        }
     }
 
     private void sendMessage(String chatId, String text) {
@@ -105,57 +159,6 @@ public class VenueTelegramBot extends TelegramLongPollingBot {
             e.printStackTrace();
         }
     }
-
-
-    private void handleCallback(CallbackQuery callbackQuery) {
-        String callbackData = callbackQuery.getData(); // например "VENUE_5"
-        String chatId = callbackQuery.getMessage().getChatId().toString();
-
-        if (callbackData.startsWith("VENUE_")) {
-            Long venueId = Long.parseLong(callbackData.substring(6)); // извлекаем id
-
-            Venue venue = venueService.findVenueById(venueId);
-            if (venue != null) {
-                String layoutUrl = venue.getLayoutUrl(); // Убедись, что такой метод есть
-
-                try (InputStream inputStream = venueService.download(layoutUrl)) {
-                    // Сохраняем InputStream во временный файл
-                    File tempFile = File.createTempFile("layout_", ".jpg"); // можно .png если нужно
-                    try (OutputStream outStream = new FileOutputStream(tempFile)) {
-                        inputStream.transferTo(outStream);
-                    }
-
-                    SendPhoto photo = new SendPhoto();
-                    photo.setChatId(chatId);
-                    photo.setPhoto(new InputFile(tempFile));
-                    photo.setCaption("Layout заведения \"" + venue.getName() + "\"");
-
-                    execute(photo);
-
-                    // Удаляем временный файл после отправки (опционально)
-                    tempFile.deleteOnExit();
-
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    sendMessage(chatId, "Не удалось загрузить layout заведения.");
-                }
-
-            } else {
-                sendMessage(chatId, "Заведение не найдено.");
-            }
-        }
-
-        // подтверждение callback
-        AnswerCallbackQuery answer = new AnswerCallbackQuery();
-        answer.setCallbackQueryId(callbackQuery.getId());
-        try {
-            execute(answer);
-        } catch (TelegramApiException e) {
-            e.printStackTrace();
-        }
-    }
-
-
 
     @Override
     public String getBotUsername() {

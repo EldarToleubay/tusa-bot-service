@@ -9,5 +9,5 @@ import java.util.List;
 public interface PlaceStatusService {
     List<PlaceStatusDto> getPlaceAvailability(Long venueId, LocalDate date);
 
-    List<PlaceStatusDto> setPlaceStatus(Long venueId, Long placeId,String timeSlot);
+    PlaceStatusDto setPlaceStatus(Long venueId, Long placeId,String timeSlot);
 }
